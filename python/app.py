@@ -1,6 +1,8 @@
 import json
+import paho.mqtt
+from paho.mqtt import client as mqtt
 import requests
-import paho.mqtt.client as paho
+import paho
 
 from os import getenv
 from dotenv import load_dotenv
@@ -9,12 +11,17 @@ load_dotenv()
 API_KEY = getenv('API_KEY')
 API_ENDPOINT = getenv('API_ENDPOINT')
 MQTT_BROKER = getenv('MQTT_BROKER')
-MQTT_PORT = getenv('MQTT_PORT')
+MQTT_PORT = int(getenv('MQTT_PORT'))
 MQTT_USERNAME = getenv('MQTT_USERNAME')
 MQTT_PASSWORD = getenv('MQTT_PASSWORD')
 
+print("*"*50)
+print(API_KEY, API_ENDPOINT, MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD)
+print("-"*50)
+
 # List of MQTT topics to subscribe to
-topics = []
+topics = ['maticas-tech/numeric-data/#',
+          'maticas-tech/image-data/#',]
 
 # List of temporal MQTT messages, for later sending to the API
 # as a big batch 
@@ -24,20 +31,19 @@ messages = []
 
 # Define the callback function that will be called when a message is received
 def on_message(client, userdata, message):
-    print("Received message '" + str(message.payload) + "' on topic '" + message.topic + "' with QoS " + str(message.qos))
+    print("Received message '" + str(message.payload.decode('utf-8')) + "' on topic '" + message.topic + "' with QoS " + str(message.qos))
 
     # split the topic into parts
     parts = message.topic.split('/')
 
     # ordering of the parts is important 
-    # e.g. "maticas-tech/growing-zone1-id/variable-UIID/datetime-timezone-aware/" will be split into
-    # ['maticas-tech', 'growing-zone1-id', 'variable-UIID', 'datetime-timezone-aware']
+    # e.g. "maticas-tech/numeric-data/growing-zone1-id/variable-UIID/datetime-timezone-aware/"
     # 'datetime-timezone-aware' has pattern: 'YYYY-MM-DDTHH:MM:SS+HH:MM'
     parameters = {}
-    parameters['crop'] = parts[1]
-    parameters['variable'] = parts[2]
-    parameters['datetime'] = parts[3]
-    parameters['value'] = message.payload
+    parameters['crop'] = parts[2]
+    parameters['variable'] = parts[3]
+    parameters['datetime'] = parts[4]
+    parameters['value'] = message.payload.decode('utf-8')
 
     # add the message to the list of messages
     if len(messages) < MAX_MESSAGES:
@@ -47,19 +53,27 @@ def on_message(client, userdata, message):
         send_messages_to_api()
 
 # Define the callback function that will be called when the client receives a CONNACK response from the server.
-def on_connect(client, userdata, flags, rc):
-    print("Connected with result code " + str(rc))
+def on_connect(client, userdata, flags, reason_code, properties):
+
+    print("Connected with result code " + str(reason_code))
+    if reason_code != 0:
+        print("Failed to connect to the MQTT broker")
+        return
 
     # Subscribe to the topics
     for topic in topics:
         client.subscribe(topic)
 
 # Define the callback function that will be called when the client disconnects from the server.
-def on_disconnect(client, userdata, rc):
-    print("Disconnected with result code " + str(rc))
+# NEW code for both version
+def on_disconnect(client, userdata, flags, reason_code, properties):
+    print("Disconnected with result code " + str(reason_code))
+    if reason_code == 0:
+        # send the messages to the API
+        send_messages_to_api()
+    elif reason_code != 0:
+        print("Unexpected disconnection.")
 
-    # send the messages to the API
-    send_messages_to_api()
 
 # Define the function that will send the messages to the API
 def send_messages_to_api():
@@ -80,4 +94,18 @@ def send_messages_to_api():
     
 
 # Create an MQTT client
-client = paho.
+client_id = "mqtt-api-bridge-123"
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id)
+client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+
+# Assign the functions to the client
+client.on_message = on_message
+client.on_connect = on_connect
+client.on_disconnect = on_disconnect
+
+# Connect to the MQTT broker
+if __name__ == "__main__":
+    client.connect(MQTT_BROKER, MQTT_PORT)
+
+    # Start the loop
+    client.loop_forever()
