@@ -1,6 +1,8 @@
 services:
   mosquitto:
     image: eclipse-mosquitto
+    networks:
+      - shared_network
     ports:
       - "1883:1883"
     volumes:
@@ -8,11 +10,20 @@ services:
       - ./mosquitto/config/passwd:/mosquitto/config/passwd
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
+    restart: unless-stopped
 
   python:
     build: ./python
+    environment:
+      - PYTHONUNBUFFERED=1
     depends_on:
       - mosquitto
+    networks:
+      - shared_network
+
+networks:
+  shared_network:
+    external: true
 
 volumes:
   mosquitto_data:
