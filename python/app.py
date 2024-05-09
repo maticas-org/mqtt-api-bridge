@@ -1,11 +1,9 @@
 import json
-import paho.mqtt
-from paho.mqtt import client as mqtt
 import requests
-import paho
 
 from os import getenv
 from dotenv import load_dotenv
+from paho.mqtt import client as mqtt
 
 load_dotenv()
 API_KEY = getenv('API_KEY')
@@ -25,9 +23,8 @@ topics = ['maticas-tech/numeric-data/#',
 
 # List of temporal MQTT messages, for later sending to the API
 # as a big batch 
-MAX_MESSAGES = 20
+MAX_MESSAGES = 10
 messages = []
-
 
 # Define the callback function that will be called when a message is received
 def on_message(client, userdata, message):
@@ -36,21 +33,44 @@ def on_message(client, userdata, message):
     # split the topic into parts
     parts = message.topic.split('/')
 
+    if len(parts) < 5:
+        print("Invalid topic")
+        return
+
     # ordering of the parts is important 
     # e.g. "maticas-tech/numeric-data/growing-zone1-id/variable-UIID/datetime-timezone-aware/"
     # 'datetime-timezone-aware' has pattern: 'YYYY-MM-DDTHH:MM:SS+HH:MM'
-    parameters = {}
-    parameters['crop'] = parts[2]
-    parameters['variable'] = parts[3]
-    parameters['datetime'] = parts[4]
-    parameters['value'] = message.payload.decode('utf-8')
 
-    # add the message to the list of messages
-    if len(messages) < MAX_MESSAGES:
-        messages.append(parameters)
+    #if topic is from numeric-data
+    if parts[1] == 'numeric-data':
+        parameters = {}
+        parameters['crop'] = parts[2]
+        parameters['variable'] = parts[3]
+        parameters['datetime'] = parts[4]
+        parameters['value'] = message.payload.decode('utf-8')
+
+        #check if value is numeric
+        try:
+            float(parameters['value'])
+        except ValueError:
+            print(f"Invalid value {parameters['value']}")
+            return
+
+        # add the message to the list of messages
+        if len(messages) < MAX_MESSAGES:
+            messages.append(parameters)
+        else:
+            # send the messages to the API
+            send_messages_to_api()
+
+    #if topic is from image-data
+    elif parts[1] == 'image-data':
+        print("Image data not implemented yet")
+
     else:
-        # send the messages to the API
-        send_messages_to_api()
+        print(f"Invalid topic {parts[1]}")
+        
+
 
 # Define the callback function that will be called when the client receives a CONNACK response from the server.
 def on_connect(client, userdata, flags, reason_code, properties):
